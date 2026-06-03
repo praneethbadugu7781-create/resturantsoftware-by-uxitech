@@ -1,3 +1,17 @@
+console.log("UXITECH SERVER: Starting server initialization...");
+console.log("UXITECH SERVER: CWD is:", process.cwd());
+console.log("UXITECH SERVER: Environment variables - PORT:", process.env.PORT, "NODE_ENV:", process.env.NODE_ENV);
+
+process.on("uncaughtException", (err) => {
+  console.error("UXITECH SERVER CRITICAL: Uncaught Exception:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("UXITECH SERVER CRITICAL: Unhandled Rejection at:", promise, "reason:", reason);
+  process.exit(1);
+});
+
 import http from "node:http";
 import { Server } from "socket.io";
 import { createApp } from "./app.js";
