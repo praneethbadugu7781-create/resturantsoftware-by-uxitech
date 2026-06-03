@@ -1,4 +1,4 @@
-import type { ErrorRequestHandler } from "express";
+import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 
 export class HttpError extends Error {
@@ -13,7 +13,7 @@ export const asyncHandler =
     fn(...args).catch(args[2]);
   };
 
-export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
+export const errorHandler = (error: any, _req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof ZodError) {
     res.status(400).json({ message: "Validation failed", issues: error.flatten() });
     return;

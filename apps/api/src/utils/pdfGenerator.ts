@@ -10,7 +10,7 @@ export function billPdfBuffer(bill: {
 }) {
   const doc = new PDFDocument({ margin: 48 });
   const chunks: Buffer[] = [];
-  doc.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+  doc.on("data", (chunk: any) => chunks.push(Buffer.from(chunk)));
 
   doc.fontSize(20).text("UXITECH Restaurant Software", { align: "center" });
   doc.moveDown().fontSize(12).text(`Bill ID: ${bill.id}`);

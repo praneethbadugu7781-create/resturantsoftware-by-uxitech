@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
@@ -52,7 +52,7 @@ router.post(
   })
 );
 
-router.post("/logout", (_req, res) => {
+router.post("/logout", (_req: Request, res: Response) => {
   res.clearCookie("refreshToken");
   res.json({ ok: true });
 });
@@ -123,8 +123,8 @@ router.post(
   })
 );
 
-router.post("/forgot-password", (_req, res) => res.json({ ok: true, message: "Password reset email queued when SMTP is configured." }));
-router.post("/reset-password", (_req, res) => res.json({ ok: true }));
-router.get("/me", authenticate, (req, res) => res.json({ user: req.user }));
+router.post("/forgot-password", (_req: Request, res: Response) => res.json({ ok: true, message: "Password reset email queued when SMTP is configured." }));
+router.post("/reset-password", (_req: Request, res: Response) => res.json({ ok: true }));
+router.get("/me", authenticate, (req: Request, res: Response) => res.json({ user: req.user }));
 
 export default router;

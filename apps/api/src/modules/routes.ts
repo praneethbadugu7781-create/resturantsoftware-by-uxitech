@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import multer from "multer";
@@ -22,10 +22,10 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
+  destination: (_req: any, _file: any, cb: any) => {
     cb(null, uploadDir);
   },
-  filename: (_req, file, cb) => {
+  filename: (_req: any, file: any, cb: any) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(null, uniqueSuffix + path.extname(file.originalname));
   }
@@ -34,7 +34,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (_req, file, cb) => {
+  fileFilter: (_req: any, file: any, cb: any) => {
     const allowedTypes = /jpeg|jpg|png|webp|gif/;
     const mimeType = allowedTypes.test(file.mimetype);
     const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
@@ -63,7 +63,7 @@ async function activeSession(tableId: string, customerCount = 1) {
 export function apiRoutes(io: Server) {
   router.use("/auth", authRoutes);
 
-  router.get("/health", (_req, res) => res.json({ ok: true, service: "uxitech-api" }));
+  router.get("/health", (_req: Request, res: Response) => res.json({ ok: true, service: "uxitech-api" }));
 
   router.get(
     "/qr/:tableToken",
