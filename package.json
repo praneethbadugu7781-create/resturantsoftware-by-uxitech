@@ -10,6 +10,7 @@
     "packages/*"
   ],
   "scripts": {
+    "start": "node apps/api/dist/src/server.js",
     "dev": "npm run dev --workspace @uxitech/api & npm run dev --workspace @uxitech/web",
     "build": "npm run build --workspace @uxitech/shared && npm run build --workspace @uxitech/api && npm run build --workspace @uxitech/web",
     "lint": "npm run lint --workspace @uxitech/web",
