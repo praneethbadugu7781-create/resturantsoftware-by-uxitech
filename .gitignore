@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+/node_modules
+apps/*/node_modules
+packages/*/node_modules
+
+# Build outputs
+dist/
+/dist
+apps/*/dist
+packages/*/dist
+.next/
+/.next
+apps/web/.next
+
+# Local configurations & secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+apps/api/.env
+
+# Debug & system logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+
+# OS / Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# AI / System caches
+.sixth/
+.gemini/
+.system_generated/
+/api-dev.err.log
+/api-dev.out.log
+/web-dev.err.log
+/web-dev.out.log
