@@ -64,12 +64,12 @@ export default function HowItWorksPage() {
     <PublicShell>
       <section className="mx-auto max-w-4xl px-6 py-20 md:py-28 animate-slide-up text-left">
         {/* Title */}
-        <div className="max-w-xl space-y-4 border-b border-black/[0.04] pb-10">
-          <p className="text-xs font-bold uppercase tracking-widest text-clay">Onboarding Walkthrough</p>
-          <h1 className="text-4xl font-black tracking-tight text-ink md:text-5xl">
+        <div className="max-w-2xl space-y-4 border-b border-black/[0.06] pb-10">
+          <p className="text-xs font-black uppercase tracking-widest text-clay">Onboarding Walkthrough</p>
+          <h1 className="text-4xl font-black tracking-tight text-ink md:text-5xl leading-tight">
             How UXITECH Digitalizes Your Tables.
           </h1>
-          <p className="text-sm font-medium text-ink/50 leading-relaxed">
+          <p className="text-base font-bold text-ink/75 leading-relaxed">
             Follow this clear step-by-step pipeline to understand how the multi-tenant SaaS platform synchronizes customers, kitchens, and cashiers in real-time.
           </p>
         </div>
@@ -77,30 +77,30 @@ export default function HowItWorksPage() {
         {/* Timeline Timeline */}
         <div className="mt-16 space-y-16 relative">
           {/* Vertical progress line */}
-          <div className="hidden md:block absolute left-[30px] top-6 bottom-6 w-0.5 bg-black/[0.05] z-0" />
+          <div className="hidden md:block absolute left-[32px] top-8 bottom-8 w-0.5 bg-black/[0.08] z-0" />
           
           {steps.map((st, idx) => (
             <div key={idx} className="relative z-10 flex flex-col md:flex-row gap-8">
               {/* Step indicator circle */}
-              <div className="flex-shrink-0 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#fcfdfc] border border-black/[0.06] text-ink shadow-[0_4px_20px_rgb(0,0,0,0.01)] md:h-16 md:w-16">
+              <div className="flex-shrink-0 flex h-16 w-16 items-center justify-center rounded-2xl bg-white border border-black/10 text-ink shadow-soft md:h-16 md:w-16 hover:scale-105 transition-all">
                 {st.icon}
               </div>
 
-              {/* Step Content */}
-              <div className="space-y-4 flex-1">
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-bold text-leaf bg-leaf/5 border border-leaf/10 px-2 py-0.5 rounded-md">
+              {/* Step Content Card */}
+              <div className="space-y-4 flex-1 bg-white p-6 rounded-2xl border border-black/[0.06] shadow-soft hover:shadow-md transition-all">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-[10px] font-black text-leaf bg-leaf/10 border border-leaf/25 px-2.5 py-1 rounded-md">
                     STEP {st.step}
                   </span>
-                  <h3 className="text-lg font-black text-ink">{st.title}</h3>
+                  <h3 className="text-xl font-black text-ink">{st.title}</h3>
                 </div>
-                <p className="text-xs font-medium text-ink/50 leading-relaxed max-w-2xl">{st.desc}</p>
+                <p className="text-sm font-semibold text-ink/70 leading-relaxed max-w-2xl">{st.desc}</p>
                 
                 {/* Feature checklist */}
-                <ul className="grid gap-2 text-xs text-ink/65 font-bold pt-2 sm:grid-cols-3">
+                <ul className="grid gap-3 text-xs text-ink/80 font-black pt-3 border-t border-black/[0.04] sm:grid-cols-3">
                   {st.checklist.map((item, cidx) => (
                     <li key={cidx} className="flex items-center gap-2">
-                      <Check className="h-4 w-4 text-leaf bg-leaf/10 p-0.5 rounded-full flex-shrink-0" />
+                      <Check className="h-4 w-4 text-leaf bg-leaf/15 p-0.5 rounded-full flex-shrink-0 border border-leaf/10" />
                       <span>{item}</span>
                     </li>
                   ))}
@@ -111,9 +111,9 @@ export default function HowItWorksPage() {
         </div>
 
         {/* Final CTA */}
-        <div className="mt-24 text-center space-y-5 bg-mist/30 border border-black/[0.04] p-8 md:p-12 rounded-3xl">
-          <h3 className="text-xl font-bold text-ink">Ready to run a live sandbox order?</h3>
-          <p className="text-xs font-medium text-ink/50 max-w-sm mx-auto leading-relaxed">
+        <div className="mt-24 text-center space-y-5 bg-mist/40 border border-black/[0.06] p-8 md:p-12 rounded-3xl">
+          <h3 className="text-2xl font-black text-ink">Ready to run a live sandbox order?</h3>
+          <p className="text-sm font-bold text-ink/70 max-w-md mx-auto leading-relaxed">
             Create a custom business profile, complete simulated payment, and print table QR codes instantly.
           </p>
           <div className="pt-2 flex flex-wrap justify-center gap-3">
