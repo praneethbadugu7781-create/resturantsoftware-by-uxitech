@@ -77,7 +77,7 @@ export function apiRoutes(io: Server) {
       }
       const [categories, menu] = await Promise.all([
         prisma.category.findMany({ where: { restaurantId: table.restaurantId, isActive: true }, orderBy: { sortOrder: "asc" } }),
-        prisma.menuItem.findMany({ where: { restaurantId: table.restaurantId, isAvailable: true }, orderBy: { name: "asc" } })
+        prisma.menuItem.findMany({ where: { restaurantId: table.restaurantId, isAvailable: true }, include: { options: { include: { options: true } } }, orderBy: { name: "asc" } })
       ]);
       res.json({ table, session, categories, menu });
     })
@@ -87,16 +87,38 @@ export function apiRoutes(io: Server) {
     "/qr/:tableToken/order",
     asyncHandler(async (req, res) => {
       const schema = z.object({
-        items: z.array(z.object({ menuItemId: z.string(), quantity: z.number().int().positive(), specialInstructions: z.string().optional() }))
+        items: z.array(z.object({
+          menuItemId: z.string(),
+          quantity: z.number().int().positive(),
+          specialInstructions: z.string().optional(),
+          selectedOptions: z.array(z.object({
+            groupName: z.string(),
+            optionName: z.string(),
+            price: z.number()
+          })).optional()
+        }))
       });
       const body = schema.parse(req.body);
       const table = await prisma.table.findUniqueOrThrow({ where: { qrToken: req.params.tableToken } });
       const session = await activeSession(table.id);
       const menuItems = await prisma.menuItem.findMany({ where: { id: { in: body.items.map((item) => item.menuItemId) } } });
-      const totalAmount = body.items.reduce((sum, item) => {
+      
+      let totalAmount = 0;
+      const itemsData = body.items.map((item) => {
         const menuItem = menuItems.find((candidate) => candidate.id === item.menuItemId);
-        return sum + (menuItem?.price ?? 0) * item.quantity;
-      }, 0);
+        const basePrice = menuItem?.price ?? 0;
+        const optionsPrice = (item.selectedOptions ?? []).reduce((sum, opt) => sum + opt.price, 0);
+        const unitPrice = basePrice + optionsPrice;
+        totalAmount += unitPrice * item.quantity;
+        return {
+          menuItemId: item.menuItemId,
+          quantity: item.quantity,
+          unitPrice,
+          specialInstructions: item.specialInstructions,
+          selectedOptions: item.selectedOptions || undefined
+        };
+      });
+
       const order = await prisma.order.create({
         data: {
           restaurantId: table.restaurantId,
@@ -105,10 +127,7 @@ export function apiRoutes(io: Server) {
           orderType: "QR_SELF",
           totalAmount,
           items: {
-            create: body.items.map((item) => {
-              const menuItem = menuItems.find((candidate) => candidate.id === item.menuItemId);
-              return { menuItemId: item.menuItemId, quantity: item.quantity, unitPrice: menuItem?.price ?? 0, specialInstructions: item.specialInstructions };
-            })
+            create: itemsData
           }
         },
         include: { items: { include: { menuItem: true } }, table: true }
@@ -227,16 +246,83 @@ export function apiRoutes(io: Server) {
 
   router.get("/orders", asyncHandler(async (req, res) => res.json(await prisma.order.findMany({ where: restaurantWhere(req), include: { table: true, items: { include: { menuItem: true } } }, orderBy: { createdAt: "desc" }, ...createPagination(req) }))));
   router.post("/orders", requireRoles("MANAGER", "WAITER"), asyncHandler(async (req, res) => {
-    const body = z.object({ tableId: z.string(), items: z.array(z.object({ menuItemId: z.string(), quantity: z.number().int().positive(), specialInstructions: z.string().optional() })) }).parse(req.body);
+    const body = z.object({
+      tableId: z.string(),
+      items: z.array(z.object({
+        menuItemId: z.string(),
+        quantity: z.number().int().positive(),
+        specialInstructions: z.string().optional(),
+        selectedOptions: z.array(z.object({
+          groupName: z.string(),
+          optionName: z.string(),
+          price: z.number()
+        })).optional()
+      }))
+    }).parse(req.body);
     const session = await activeSession(body.tableId);
     const menuItems = await prisma.menuItem.findMany({ where: { id: { in: body.items.map((item) => item.menuItemId) } } });
-    const totalAmount = body.items.reduce((sum, item) => sum + (menuItems.find((menuItem) => menuItem.id === item.menuItemId)?.price ?? 0) * item.quantity, 0);
-    const order = await prisma.order.create({ data: { restaurantId: req.user!.restaurantId, tableId: body.tableId, sessionId: session.id, orderType: "WAITER", totalAmount, items: { create: body.items.map((item) => ({ ...item, unitPrice: menuItems.find((menuItem) => menuItem.id === item.menuItemId)?.price ?? 0 })) } }, include: { items: true, table: true } });
+    
+    let totalAmount = 0;
+    const itemsData = body.items.map((item) => {
+      const menuItem = menuItems.find((candidate) => candidate.id === item.menuItemId);
+      const basePrice = menuItem?.price ?? 0;
+      const optionsPrice = (item.selectedOptions ?? []).reduce((sum, opt) => sum + opt.price, 0);
+      const unitPrice = basePrice + optionsPrice;
+      totalAmount += unitPrice * item.quantity;
+      return {
+        menuItemId: item.menuItemId,
+        quantity: item.quantity,
+        unitPrice,
+        specialInstructions: item.specialInstructions,
+        selectedOptions: item.selectedOptions || undefined
+      };
+    });
+
+    const order = await prisma.order.create({
+      data: {
+        restaurantId: req.user!.restaurantId,
+        tableId: body.tableId,
+        sessionId: session.id,
+        orderType: "WAITER",
+        totalAmount,
+        items: {
+          create: itemsData
+        }
+      },
+      include: { items: { include: { menuItem: true } }, table: true }
+    });
     io.to(`kitchen:${req.user!.restaurantId}`).emit("order:new", order);
     res.status(201).json(order);
   }));
+
   router.patch("/orders/:id/status", requireRoles("MANAGER", "WAITER", "KITCHEN"), asyncHandler(async (req, res) => {
-    const order = await prisma.order.update({ where: { id: req.params.id }, data: { status: req.body.status }, include: { table: true } });
+    const currentOrder = await prisma.order.findUniqueOrThrow({
+      where: { id: req.params.id },
+      include: { items: true }
+    });
+    const newStatus = req.body.status;
+    const shouldDeductStock = (newStatus === "PREPARING" || newStatus === "COMPLETED") && 
+                              (currentOrder.status !== "PREPARING" && currentOrder.status !== "COMPLETED");
+
+    if (shouldDeductStock) {
+      for (const item of currentOrder.items) {
+        const recipeIngredients = await prisma.recipeIngredient.findMany({
+          where: { menuItemId: item.menuItemId }
+        });
+        for (const ingredient of recipeIngredients) {
+          await prisma.inventoryItem.updateMany({
+            where: { id: ingredient.inventoryItemId },
+            data: {
+              currentStock: {
+                decrement: ingredient.quantity * item.quantity
+              }
+            }
+          });
+        }
+      }
+    }
+
+    const order = await prisma.order.update({ where: { id: req.params.id }, data: { status: newStatus }, include: { table: true } });
     io.to(`restaurant:${order.restaurantId}`).emit("order:statusUpdate", order);
     io.to(`table:${order.tableId}`).emit("order:statusUpdate", order);
     res.json(order);
@@ -270,13 +356,141 @@ export function apiRoutes(io: Server) {
     const bill = await prisma.bill.create({ data: { restaurantId: req.user!.restaurantId, tableId: body.tableId, sessionId: session.id, orderIds: orders.map((order) => order.id), subtotal, gstAmount, gstPercent: body.gstPercent, serviceCharge: body.serviceCharge, discount: body.discount, totalAmount }, include: { table: true } });
     res.status(201).json(bill);
   }));
+  router.post("/bills/:id/split", requireRoles("CASHIER", "MANAGER"), asyncHandler(async (req, res) => {
+    const body = z.object({
+      splitType: z.enum(["EQUAL", "ITEMIZED"]),
+      parts: z.number().int().min(2).optional(),
+      itemSplits: z.array(z.object({
+        guestName: z.string(),
+        itemIds: z.array(z.string())
+      })).optional()
+    }).parse(req.body);
+
+    const bill = await prisma.bill.findUniqueOrThrow({
+      where: { id: req.params.id },
+      include: { table: true }
+    });
+
+    if (body.splitType === "EQUAL") {
+      const parts = body.parts || 2;
+      const amountPerPart = bill.totalAmount / parts;
+      const subtotalPerPart = bill.subtotal / parts;
+      const gstPerPart = bill.gstAmount / parts;
+      const servicePerPart = bill.serviceCharge / parts;
+      const discountPerPart = bill.discount / parts;
+
+      const splits = Array.from({ length: parts }, (_, i) => ({
+        id: `${bill.id}-split-${i + 1}`,
+        partNumber: i + 1,
+        subtotal: subtotalPerPart,
+        gstAmount: gstPerPart,
+        serviceCharge: servicePerPart,
+        discount: discountPerPart,
+        totalAmount: amountPerPart,
+        paymentStatus: "PENDING",
+        paymentMethod: "CASH"
+      }));
+
+      const updatedBill = await prisma.bill.update({
+        where: { id: bill.id },
+        data: {
+          splitBills: splits
+        },
+        include: { table: true }
+      });
+      return res.json(updatedBill);
+    }
+
+    if (body.splitType === "ITEMIZED" && body.itemSplits) {
+      const session = await prisma.tableSession.findUniqueOrThrow({
+        where: { id: bill.sessionId },
+        include: { orders: { include: { items: { include: { menuItem: true } } } } }
+      });
+
+      const allItems = session.orders.flatMap(o => o.items);
+
+      const splits = body.itemSplits.map((split, index) => {
+        const assignedItems = allItems.filter(item => split.itemIds.includes(item.id));
+        const subtotal = assignedItems.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+        const ratio = bill.subtotal > 0 ? subtotal / bill.subtotal : 0;
+        const gstAmount = bill.gstAmount * ratio;
+        const serviceCharge = bill.serviceCharge * ratio;
+        const discount = bill.discount * ratio;
+        const totalAmount = subtotal + gstAmount + serviceCharge - discount;
+
+        return {
+          id: `${bill.id}-split-${index + 1}`,
+          guestName: split.guestName,
+          items: assignedItems.map(item => ({
+            id: item.id,
+            name: item.menuItem.name,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice
+          })),
+          subtotal,
+          gstAmount,
+          serviceCharge,
+          discount,
+          totalAmount,
+          paymentStatus: "PENDING",
+          paymentMethod: "CASH"
+        };
+      });
+
+      const updatedBill = await prisma.bill.update({
+        where: { id: bill.id },
+        data: {
+          splitBills: splits
+        },
+        include: { table: true }
+      });
+      return res.json(updatedBill);
+    }
+
+    throw new HttpError(400, "Invalid split parameters");
+  }));
+
   router.patch("/bills/:id/payment", requireRoles("CASHIER"), asyncHandler(async (req, res) => {
-    const bill = await prisma.bill.update({ where: { id: req.params.id }, data: { paymentMethod: req.body.paymentMethod, paymentStatus: "PAID" }, include: { table: true } });
-    await prisma.tableSession.update({ where: { id: bill.sessionId }, data: { status: "CLOSED", endTime: new Date(), totalBilled: bill.totalAmount } });
-    await prisma.table.update({ where: { id: bill.tableId }, data: { status: "AVAILABLE" } });
-    io.to(`restaurant:${bill.restaurantId}`).emit("bill:paid", bill);
-    io.to(`restaurant:${bill.restaurantId}`).emit("table:statusChange", { tableId: bill.tableId, status: "AVAILABLE" });
-    res.json(bill);
+    const { paymentMethod, splitPartId } = req.body;
+    const bill = await prisma.bill.findUniqueOrThrow({ where: { id: req.params.id }, include: { table: true } });
+    
+    if (splitPartId && bill.splitBills) {
+      const splits = bill.splitBills as any[];
+      const updatedSplits = splits.map(part => {
+        if (part.id === splitPartId) {
+          return { ...part, paymentStatus: "PAID", paymentMethod };
+        }
+        return part;
+      });
+
+      const allPaid = updatedSplits.every(part => part.paymentStatus === "PAID");
+
+      const updatedBill = await prisma.bill.update({
+        where: { id: bill.id },
+        data: {
+          splitBills: updatedSplits,
+          paymentStatus: allPaid ? "PAID" : "PENDING",
+          paymentMethod: allPaid ? "SPLIT" : bill.paymentMethod
+        },
+        include: { table: true }
+      });
+
+      if (allPaid) {
+        await prisma.tableSession.update({ where: { id: bill.sessionId }, data: { status: "CLOSED", endTime: new Date(), totalBilled: bill.totalAmount } });
+        await prisma.table.update({ where: { id: bill.tableId }, data: { status: "AVAILABLE" } });
+        io.to(`restaurant:${bill.restaurantId}`).emit("bill:paid", updatedBill);
+        io.to(`restaurant:${bill.restaurantId}`).emit("table:statusChange", { tableId: bill.tableId, status: "AVAILABLE" });
+      }
+
+      return res.json(updatedBill);
+    } else {
+      const updatedBill = await prisma.bill.update({ where: { id: req.params.id }, data: { paymentMethod: req.body.paymentMethod, paymentStatus: "PAID" }, include: { table: true } });
+      await prisma.tableSession.update({ where: { id: updatedBill.sessionId }, data: { status: "CLOSED", endTime: new Date(), totalBilled: updatedBill.totalAmount } });
+      await prisma.table.update({ where: { id: updatedBill.tableId }, data: { status: "AVAILABLE" } });
+      io.to(`restaurant:${updatedBill.restaurantId}`).emit("bill:paid", updatedBill);
+      io.to(`restaurant:${updatedBill.restaurantId}`).emit("table:statusChange", { tableId: updatedBill.tableId, status: "AVAILABLE" });
+      return res.json(updatedBill);
+    }
   }));
   router.get("/bills/:id/pdf", requireRoles("CASHIER", "MANAGER"), asyncHandler(async (req, res) => {
     const bill = await prisma.bill.findUniqueOrThrow({ where: { id: req.params.id } });
@@ -342,6 +556,104 @@ export function apiRoutes(io: Server) {
   router.get("/ai/predictions/inventory", asyncHandler(async (_req, res) => res.redirect(307, "/api/v1/ai/insights")));
   router.get("/ai/predictions/revenue", asyncHandler(async (_req, res) => res.redirect(307, "/api/v1/ai/insights")));
   router.get("/ai/peak-hours", asyncHandler(async (_req, res) => res.json(Array.from({ length: 24 }, (_, hour) => ({ hour, orders: Math.round(Math.random() * 20) })))));
+
+  // Modifiers API
+  router.get("/menu/items/:id/options", asyncHandler(async (req, res) => {
+    const groups = await prisma.menuItemOptionGroup.findMany({
+      where: { menuItemId: req.params.id },
+      include: { options: true }
+    });
+    res.json(groups);
+  }));
+
+  router.post("/menu/items/:id/options", requireRoles("MANAGER"), asyncHandler(async (req, res) => {
+    const body = z.object({
+      groups: z.array(z.object({
+        id: z.string().optional(),
+        name: z.string().min(1),
+        minSelect: z.number().int().default(0),
+        maxSelect: z.number().int().default(1),
+        isRequired: z.boolean().default(false),
+        options: z.array(z.object({
+          id: z.string().optional(),
+          name: z.string().min(1),
+          price: z.number().default(0),
+          isAvailable: z.boolean().default(true)
+        }))
+      }))
+    }).parse(req.body);
+
+    const menuItemId = req.params.id;
+
+    // Delete existing options & groups to overwrite
+    await prisma.menuItemOptionGroup.deleteMany({ where: { menuItemId } });
+
+    // Re-create them
+    for (const group of body.groups) {
+      await prisma.menuItemOptionGroup.create({
+        data: {
+          menuItemId,
+          name: group.name,
+          minSelect: group.minSelect,
+          maxSelect: group.maxSelect,
+          isRequired: group.isRequired,
+          options: {
+            create: group.options.map(opt => ({
+              name: opt.name,
+              price: opt.price,
+              isAvailable: opt.isAvailable
+            }))
+          }
+        }
+      });
+    }
+
+    const updatedGroups = await prisma.menuItemOptionGroup.findMany({
+      where: { menuItemId },
+      include: { options: true }
+    });
+    res.json(updatedGroups);
+  }));
+
+  // Recipes API
+  router.get("/menu/items/:id/recipe", asyncHandler(async (req, res) => {
+    const recipe = await prisma.recipeIngredient.findMany({
+      where: { menuItemId: req.params.id },
+      include: { inventoryItem: true }
+    });
+    res.json(recipe);
+  }));
+
+  router.post("/menu/items/:id/recipe", requireRoles("MANAGER"), asyncHandler(async (req, res) => {
+    const body = z.object({
+      ingredients: z.array(z.object({
+        inventoryItemId: z.string(),
+        quantity: z.number().positive()
+      }))
+    }).parse(req.body);
+
+    const menuItemId = req.params.id;
+
+    // Delete existing recipe mapping to overwrite
+    await prisma.recipeIngredient.deleteMany({ where: { menuItemId } });
+
+    // Create new ones
+    if (body.ingredients.length > 0) {
+      await prisma.recipeIngredient.createMany({
+        data: body.ingredients.map(ing => ({
+          menuItemId,
+          inventoryItemId: ing.inventoryItemId,
+          quantity: ing.quantity
+        }))
+      });
+    }
+
+    const updatedRecipe = await prisma.recipeIngredient.findMany({
+      where: { menuItemId },
+      include: { inventoryItem: true }
+    });
+    res.json(updatedRecipe);
+  }));
 
   router.get("/settings", asyncHandler(async (req, res) => res.json(await prisma.restaurant.findUnique({ where: { id: req.user!.restaurantId } }))));
   router.patch("/settings", requireRoles("OWNER"), asyncHandler(async (req, res) => res.json(await prisma.restaurant.update({ where: { id: req.user!.restaurantId }, data: req.body }))));

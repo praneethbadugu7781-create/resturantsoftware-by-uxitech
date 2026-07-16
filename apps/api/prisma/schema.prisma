@@ -168,6 +168,8 @@ model MenuItem {
   preparationTime Int         @default(15)
   createdAt       DateTime    @default(now())
   orderItems      OrderItem[]
+  options         MenuItemOptionGroup[]
+  recipe          RecipeIngredient[]
 }
 
 model Order {
@@ -196,6 +198,7 @@ model OrderItem {
   unitPrice            Float
   specialInstructions  String?
   status               OrderStatus @default(PENDING)
+  selectedOptions      Json?
 }
 
 model Bill {
@@ -216,6 +219,7 @@ model Bill {
   paymentStatus  PaymentStatus @default(PENDING)
   pdfUrl         String?
   createdAt      DateTime      @default(now())
+  splitBills     Json?
 }
 
 model InventoryItem {
@@ -231,6 +235,7 @@ model InventoryItem {
   supplierId    String?
   supplier      Supplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   updatedAt     DateTime   @updatedAt
+  recipeIngredients RecipeIngredient[]
 }
 
 model Supplier {
@@ -306,4 +311,41 @@ model AuditLog {
   entityId     String?
   metadata     Json?
   createdAt    DateTime   @default(now())
+}
+
+model MenuItemOptionGroup {
+  id           String            @id @default(uuid()) @map("_id")
+  menuItemId   String
+  menuItem     MenuItem          @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  name         String            // e.g., "Choose Size", "Select Add-ons"
+  minSelect    Int               @default(0)
+  maxSelect    Int               @default(1)
+  isRequired   Boolean           @default(false)
+  options      MenuItemOption[]
+
+  @@index([menuItemId])
+}
+
+model MenuItemOption {
+  id           String              @id @default(uuid()) @map("_id")
+  groupId      String
+  group        MenuItemOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name         String              // e.g., "Medium", "Extra Cheese"
+  price        Float               @default(0)
+  isAvailable  Boolean             @default(true)
+
+  @@index([groupId])
+}
+
+model RecipeIngredient {
+  id              String        @id @default(uuid()) @map("_id")
+  menuItemId      String
+  menuItem        MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  quantity        Float         // e.g., 0.150 for 150g, 1 for 1 unit
+  createdAt       DateTime      @default(now())
+
+  @@index([menuItemId])
+  @@index([inventoryItemId])
 }

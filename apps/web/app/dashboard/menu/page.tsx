@@ -20,6 +20,8 @@ import {
   EyeOff,
   AlertTriangle,
   Folder,
+  Settings,
+  Sliders,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -78,6 +80,163 @@ function MenuManager() {
     preparationTime: "15",
   });
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Recipe and Options setup state
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configMenuItem, setConfigMenuItem] = useState<MenuItem | null>(null);
+  const [configTab, setConfigTab] = useState<"modifiers" | "recipe">("modifiers");
+
+  // Modifiers setup state
+  const [modifierGroups, setModifierGroups] = useState<any[]>([]);
+
+  // Recipes setup state
+  const [recipeIngredients, setRecipeIngredients] = useState<any[]>([]);
+  const [allInventoryItems, setAllInventoryItems] = useState<any[]>([]);
+  const [selectedIngredientId, setSelectedIngredientId] = useState("");
+  const [ingredientQuantity, setIngredientQuantity] = useState("0");
+
+  const handleOpenConfigModal = async (item: MenuItem) => {
+    setConfigMenuItem(item);
+    setConfigTab("modifiers");
+    setIsConfigModalOpen(true);
+    
+    try {
+      const optRes = await api.get(`/menu/items/${item.id}/options`);
+      setModifierGroups(optRes.data);
+
+      const recRes = await api.get(`/menu/items/${item.id}/recipe`);
+      setRecipeIngredients(recRes.data);
+
+      const invRes = await api.get("/inventory");
+      setAllInventoryItems(invRes.data);
+      if (invRes.data.length > 0) {
+        setSelectedIngredientId(invRes.data[0].id);
+      }
+    } catch (err) {
+      toast.error("Failed to load options/recipe details");
+      console.error(err);
+    }
+  };
+
+  const handleSaveModifiers = async () => {
+    if (!configMenuItem) return;
+    try {
+      const res = await api.post(`/menu/items/${configMenuItem.id}/options`, {
+        groups: modifierGroups
+      });
+      setModifierGroups(res.data);
+      toast.success("Modifier groups saved successfully");
+    } catch (err) {
+      toast.error("Failed to save modifiers");
+      console.error(err);
+    }
+  };
+
+  const handleSaveRecipe = async () => {
+    if (!configMenuItem) return;
+    try {
+      const res = await api.post(`/menu/items/${configMenuItem.id}/recipe`, {
+        ingredients: recipeIngredients.map(ing => ({
+          inventoryItemId: ing.inventoryItemId || ing.inventoryItem?.id,
+          quantity: parseFloat(ing.quantity)
+        }))
+      });
+      setRecipeIngredients(res.data);
+      toast.success("Recipe saved successfully");
+    } catch (err) {
+      toast.error("Failed to save recipe");
+      console.error(err);
+    }
+  };
+
+  const addModifierGroup = () => {
+    setModifierGroups([...modifierGroups, {
+      name: "New Group",
+      minSelect: 0,
+      maxSelect: 1,
+      isRequired: false,
+      options: []
+    }]);
+  };
+
+  const removeModifierGroup = (gIdx: number) => {
+    setModifierGroups(modifierGroups.filter((_, idx) => idx !== gIdx));
+  };
+
+  const updateModifierGroup = (gIdx: number, key: string, value: any) => {
+    setModifierGroups(modifierGroups.map((g, idx) => {
+      if (idx === gIdx) {
+        return { ...g, [key]: value };
+      }
+      return g;
+    }));
+  };
+
+  const addModifierOption = (gIdx: number) => {
+    setModifierGroups(modifierGroups.map((g, idx) => {
+      if (idx === gIdx) {
+        return {
+          ...g,
+          options: [...g.options, { name: "Option Name", price: 0, isAvailable: true }]
+        };
+      }
+      return g;
+    }));
+  };
+
+  const removeModifierOption = (gIdx: number, oIdx: number) => {
+    setModifierGroups(modifierGroups.map((g, idx) => {
+      if (idx === gIdx) {
+        return {
+          ...g,
+          options: g.options.filter((_: any, oIndex: number) => oIndex !== oIdx)
+        };
+      }
+      return g;
+    }));
+  };
+
+  const updateModifierOption = (gIdx: number, oIdx: number, key: string, value: any) => {
+    setModifierGroups(modifierGroups.map((g, idx) => {
+      if (idx === gIdx) {
+        return {
+          ...g,
+          options: g.options.map((opt: any, oIndex: number) => {
+            if (oIndex === oIdx) {
+              return { ...opt, [key]: value };
+            }
+            return opt;
+          })
+        };
+      }
+      return g;
+    }));
+  };
+
+  const addRecipeIngredient = () => {
+    const qty = parseFloat(ingredientQuantity);
+    if (isNaN(qty) || qty <= 0) {
+      toast.error("Please enter a valid quantity");
+      return;
+    }
+    const invItem = allInventoryItems.find(item => item.id === selectedIngredientId);
+    if (!invItem) return;
+
+    if (recipeIngredients.some(ing => (ing.inventoryItemId || ing.inventoryItem?.id) === selectedIngredientId)) {
+      toast.error("Ingredient already added to recipe");
+      return;
+    }
+
+    setRecipeIngredients([...recipeIngredients, {
+      inventoryItemId: selectedIngredientId,
+      inventoryItem: invItem,
+      quantity: qty
+    }]);
+  };
+
+  const removeRecipeIngredient = (id: string) => {
+    setRecipeIngredients(recipeIngredients.filter(ing => (ing.inventoryItemId || ing.inventoryItem?.id) !== id));
+  };
 
   // Load Data
   const loadData = async () => {
@@ -591,6 +750,15 @@ function MenuManager() {
                         {item.isAvailable ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                       </button>
 
+                      {/* Recipe & Modifiers Button */}
+                      <button
+                        title="Configure Recipe & Options"
+                        onClick={() => handleOpenConfigModal(item)}
+                        className="p-1.5 rounded-lg border border-leaf/15 bg-leaf/5 text-leaf hover:bg-leaf/10 transition-all"
+                      >
+                        <Settings className="h-3.5 w-3.5" />
+                      </button>
+
                       {/* Edit Button */}
                       <button
                         title="Edit Item"
@@ -835,6 +1003,270 @@ function MenuManager() {
                   </Button>
                 </div>
               </form>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Recipe & Modifiers Configuration Modal */}
+      {isConfigModalOpen && configMenuItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in text-left">
+          <div className="w-full max-w-2xl rounded-2xl border border-black/5 bg-white p-6 shadow-soft space-y-4 animate-scale-up max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start border-b border-black/5 pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-ink">
+                  Configure POS Settings: {configMenuItem.name}
+                </h3>
+                <p className="text-xs text-ink/50 mt-0.5">
+                  Set up variants/modifiers and mapping to raw stock ingredients.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsConfigModalOpen(false)}
+                className="text-xs font-bold text-ink/40 hover:text-ink/80 bg-mist px-2.5 py-1 rounded-lg transition"
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-2 border-b border-black/5 pb-2">
+              <button
+                onClick={() => setConfigTab("modifiers")}
+                className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all ${
+                  configTab === "modifiers"
+                    ? "bg-leaf/10 border-leaf/20 text-leaf"
+                    : "bg-transparent border-transparent text-ink/60 hover:bg-mist/30"
+                }`}
+              >
+                Modifiers & Add-ons
+              </button>
+              <button
+                onClick={() => setConfigTab("recipe")}
+                className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all ${
+                  configTab === "recipe"
+                    ? "bg-leaf/10 border-leaf/20 text-leaf"
+                    : "bg-transparent border-transparent text-ink/60 hover:bg-mist/30"
+                }`}
+              >
+                Recipe Ingredients (BOM)
+              </button>
+            </div>
+
+            {/* Tab: Modifiers */}
+            {configTab === "modifiers" && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-black text-ink/70 uppercase">Modifier Groups</h4>
+                  <Button
+                    onClick={addModifierGroup}
+                    className="bg-transparent border border-leaf/20 text-leaf hover:bg-leaf/5 py-1.5 px-3 text-xs font-bold shadow-none"
+                  >
+                    + Add Group
+                  </Button>
+                </div>
+
+                <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-1">
+                  {modifierGroups.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-ink/40 border border-dashed border-black/5 rounded-xl">
+                      No modifier groups configured for this item. e.g. "Size" or "Add-ons".
+                    </div>
+                  ) : (
+                    modifierGroups.map((group, gIdx) => (
+                      <div key={gIdx} className="p-4 border border-black/5 bg-[#fafafa] rounded-xl space-y-3 relative">
+                        <button
+                          type="button"
+                          onClick={() => removeModifierGroup(gIdx)}
+                          className="absolute right-3 top-3 text-[10px] font-bold text-red-500 hover:underline"
+                        >
+                          Delete Group
+                        </button>
+                        <div className="grid grid-cols-2 gap-3 pr-20">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-ink/50 uppercase">Group Name</label>
+                            <input
+                              type="text"
+                              value={group.name}
+                              onChange={(e) => updateModifierGroup(gIdx, "name", e.target.value)}
+                              className="w-full rounded-lg border border-black/10 py-1.5 px-3 text-xs bg-white text-ink outline-none focus:border-leaf"
+                              placeholder="e.g. Choose Size"
+                            />
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-ink/50 uppercase">Min</label>
+                              <input
+                                type="number"
+                                value={group.minSelect}
+                                onChange={(e) => updateModifierGroup(gIdx, "minSelect", parseInt(e.target.value) || 0)}
+                                className="w-full rounded-lg border border-black/10 py-1.5 px-2 text-xs bg-white text-ink outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-ink/50 uppercase">Max</label>
+                              <input
+                                type="number"
+                                value={group.maxSelect}
+                                onChange={(e) => updateModifierGroup(gIdx, "maxSelect", parseInt(e.target.value) || 1)}
+                                className="w-full rounded-lg border border-black/10 py-1.5 px-2 text-xs bg-white text-ink outline-none"
+                              />
+                            </div>
+                            <div className="flex items-center pt-4">
+                              <label className="flex items-center gap-1.5 text-[10px] font-bold text-ink cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={group.isRequired}
+                                  onChange={(e) => updateModifierGroup(gIdx, "isRequired", e.target.checked)}
+                                  className="h-3.5 w-3.5 rounded text-leaf"
+                                />
+                                Req?
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Options list inside group */}
+                        <div className="space-y-2 pt-2 border-t border-black/5">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-black text-ink/50 uppercase">Options</span>
+                            <button
+                              type="button"
+                              onClick={() => addModifierOption(gIdx)}
+                              className="text-[10px] text-leaf font-bold hover:underline"
+                            >
+                              + Add Option
+                            </button>
+                          </div>
+
+                          {group.options.length === 0 ? (
+                            <p className="text-[10px] text-ink/40">No options in this group.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {group.options.map((opt: any, oIdx: number) => (
+                                <div key={oIdx} className="flex gap-2 items-center">
+                                  <input
+                                    type="text"
+                                    value={opt.name}
+                                    onChange={(e) => updateModifierOption(gIdx, oIdx, "name", e.target.value)}
+                                    placeholder="Option name (e.g. Medium)"
+                                    className="flex-1 rounded-lg border border-black/10 py-1 px-3.5 text-xs bg-white text-ink outline-none"
+                                  />
+                                  <input
+                                    type="number"
+                                    value={opt.price}
+                                    onChange={(e) => updateModifierOption(gIdx, oIdx, "price", parseFloat(e.target.value) || 0)}
+                                    placeholder="Price (+Rs)"
+                                    className="w-24 rounded-lg border border-black/10 py-1 px-2.5 text-xs bg-white text-ink outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeModifierOption(gIdx, oIdx)}
+                                    className="text-xs text-red-500 hover:text-red-700 p-1"
+                                  >
+                                    &times;
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-black/5">
+                  <Button
+                    type="button"
+                    onClick={handleSaveModifiers}
+                    className="bg-leaf hover:bg-leaf/90 py-2.5 text-xs text-white"
+                  >
+                    Save Options & Modifiers
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Tab: Recipe */}
+            {configTab === "recipe" && (
+              <div className="space-y-4">
+                <div className="p-4 border border-black/5 bg-[#fafafa] rounded-xl space-y-3">
+                  <h4 className="text-xs font-black text-ink/70 uppercase">Add Ingredient</h4>
+                  <div className="flex gap-3 items-end">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[10px] font-bold text-ink/50 uppercase">Select Raw Ingredient</label>
+                      <select
+                        value={selectedIngredientId}
+                        onChange={(e) => setSelectedIngredientId(e.target.value)}
+                        className="w-full rounded-lg border border-black/10 py-2 px-3 text-xs bg-white text-ink cursor-pointer outline-none"
+                      >
+                        {allInventoryItems.map(item => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} ({item.unit})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="w-36 space-y-1">
+                      <label className="text-[10px] font-bold text-ink/50 uppercase">Quantity Needed</label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        value={ingredientQuantity}
+                        onChange={(e) => setIngredientQuantity(e.target.value)}
+                        className="w-full rounded-lg border border-black/10 py-2 px-3 text-xs bg-white text-ink outline-none"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={addRecipeIngredient}
+                      className="bg-leaf hover:bg-leaf/90 py-2 px-4 text-xs text-white font-bold"
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="text-xs font-black text-ink/70 uppercase">Recipe Ingredients List (BOM)</h4>
+                  <div className="max-h-[30vh] overflow-y-auto pr-1 space-y-2">
+                    {recipeIngredients.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-ink/40 border border-dashed border-black/5 rounded-xl">
+                        No recipe mapped. Stock will not be auto-deducted for this item.
+                      </div>
+                    ) : (
+                      recipeIngredients.map((ing, idx) => (
+                        <div key={idx} className="flex justify-between items-center p-3 border border-black/5 bg-white rounded-xl shadow-sm">
+                          <div>
+                            <p className="text-xs font-extrabold text-ink">
+                              {ing.inventoryItem?.name || "Unknown Ingredient"}
+                            </p>
+                            <p className="text-[10px] text-ink/45">
+                              {ing.quantity} {ing.inventoryItem?.unit || "units"} per portion
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeRecipeIngredient(ing.inventoryItemId || ing.inventoryItem?.id)}
+                            className="text-xs text-red-500 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-black/5">
+                  <Button
+                    type="button"
+                    onClick={handleSaveRecipe}
+                    className="bg-leaf hover:bg-leaf/90 py-2.5 text-xs text-white"
+                  >
+                    Save Recipe Ingredients
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         </div>

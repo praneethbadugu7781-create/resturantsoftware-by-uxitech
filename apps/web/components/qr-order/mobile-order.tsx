@@ -20,6 +20,22 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 
+type MenuItemOption = {
+  id: string;
+  name: string;
+  price: number;
+  isAvailable: boolean;
+};
+
+type MenuItemOptionGroup = {
+  id: string;
+  name: string;
+  minSelect: number;
+  maxSelect: number;
+  isRequired: boolean;
+  options: MenuItemOption[];
+};
+
 type MenuItem = {
   id: string;
   name: string;
@@ -29,6 +45,7 @@ type MenuItem = {
   image?: string;
   isVeg: boolean;
   preparationTime: number;
+  options?: MenuItemOptionGroup[];
 };
 
 type Category = {
@@ -61,6 +78,99 @@ export function MobileOrder({ token }: { token: string }) {
   const [activeTab, setActiveTab] = useState<"menu" | "cart" | "track">("menu");
   const [selectedCategory, setSelectedCategory] = useState("All");
   
+  // Custom Options Modal State
+  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
+  const [modifierMenuItem, setModifierMenuItem] = useState<MenuItem | null>(null);
+  const [selectedOptionsMap, setSelectedOptionsMap] = useState<Record<string, MenuItemOption[]>>({});
+
+  const handleAddItemClick = (item: MenuItem) => {
+    if (item.options && item.options.length > 0) {
+      setModifierMenuItem(item);
+      const initialMap: Record<string, MenuItemOption[]> = {};
+      item.options.forEach(g => {
+        initialMap[g.id] = [];
+      });
+      setSelectedOptionsMap(initialMap);
+      setIsModifierModalOpen(true);
+    } else {
+      add({
+        id: item.id,
+        menuItemId: item.id,
+        name: item.name,
+        price: item.price,
+        selectedOptions: []
+      });
+    }
+  };
+
+  const handleSelectOptionToggle = (groupId: string, option: MenuItemOption, maxSelect: number) => {
+    const selected = selectedOptionsMap[groupId] || [];
+    const isAlreadySelected = selected.some(o => o.id === option.id);
+
+    let nextSelected: MenuItemOption[] = [];
+    if (isAlreadySelected) {
+      nextSelected = selected.filter(o => o.id !== option.id);
+    } else {
+      if (maxSelect === 1) {
+        nextSelected = [option];
+      } else {
+        if (selected.length >= maxSelect) {
+          toast.error(`You can select at most ${maxSelect} options for this choice`);
+          return;
+        }
+        nextSelected = [...selected, option];
+      }
+    }
+
+    setSelectedOptionsMap({
+      ...selectedOptionsMap,
+      [groupId]: nextSelected
+    });
+  };
+
+  const handleConfirmModifiers = () => {
+    if (!modifierMenuItem) return;
+
+    for (const group of modifierMenuItem.options || []) {
+      const selected = selectedOptionsMap[group.id] || [];
+      if (group.isRequired && selected.length < group.minSelect) {
+        toast.error(`Please select at least ${group.minSelect} option(s) for "${group.name}"`);
+        return;
+      }
+    }
+
+    const flatOptions: any[] = [];
+    let extraPrice = 0;
+    Object.entries(selectedOptionsMap).forEach(([groupId, opts]) => {
+      const group = modifierMenuItem.options?.find(g => g.id === groupId);
+      opts.forEach(opt => {
+        flatOptions.push({
+          groupName: group?.name || "",
+          optionName: opt.name,
+          price: opt.price
+        });
+        extraPrice += opt.price;
+      });
+    });
+
+    const sortedOptionsStr = flatOptions
+      .map(o => `${o.groupName}:${o.optionName}`)
+      .sort()
+      .join("|");
+    const cartItemId = sortedOptionsStr ? `${modifierMenuItem.id}-${sortedOptionsStr}` : modifierMenuItem.id;
+
+    add({
+      id: cartItemId,
+      menuItemId: modifierMenuItem.id,
+      name: modifierMenuItem.name,
+      price: modifierMenuItem.price + extraPrice,
+      selectedOptions: flatOptions
+    });
+
+    setIsModifierModalOpen(false);
+    toast.success("Customized item added to cart!");
+  };
+
   // Data States
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -122,9 +232,10 @@ export function MobileOrder({ token }: { token: string }) {
     try {
       setPlacingOrder(true);
       const itemsPayload = cart.map((item) => ({
-        menuItemId: item.id,
+        menuItemId: item.menuItemId || item.id,
         quantity: item.quantity,
-        specialInstructions: ""
+        specialInstructions: "",
+        selectedOptions: item.selectedOptions
       }));
       await api.post(`/qr/${token}/order`, { items: itemsPayload });
       toast.success("Order placed successfully! Sent to kitchen.");
@@ -216,7 +327,9 @@ export function MobileOrder({ token }: { token: string }) {
             {/* Menu Items List */}
             <section className="space-y-3.5">
               {filteredItems.map((item, index) => {
-                const inCart = cart.find((cartItem) => cartItem.id === item.id);
+                const quantityInCart = cart
+                  .filter((cartItem) => cartItem.menuItemId === item.id || cartItem.id === item.id)
+                  .reduce((sum, cartItem) => sum + cartItem.quantity, 0);
                 return (
                   <article
                     key={item.id}
@@ -242,19 +355,21 @@ export function MobileOrder({ token }: { token: string }) {
                         <div className="flex items-center justify-between mt-3">
                           <p className="font-black text-sm text-ink">Rs. {item.price}</p>
                           <div className="flex items-center gap-2">
-                            {inCart ? (
-                              <div className="flex items-center gap-2.5 bg-mist/50 rounded-lg p-1 border border-black/5 animate-scale-up">
-                                <button title="Remove" className="rounded-md bg-white border border-black/5 p-1.5 active:scale-95 shadow-sm" onClick={() => remove(item.id)}>
-                                  <Minus className="h-3 w-3 text-ink" />
-                                </button>
-                                <span className="w-4 text-center text-xs font-bold text-ink">{inCart.quantity}</span>
-                                <button title="Add" className="rounded-md bg-white border border-black/5 p-1.5 active:scale-95 shadow-sm" onClick={() => add(item)}>
-                                  <Plus className="h-3 w-3 text-ink" />
+                            {quantityInCart > 0 ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-leaf bg-leaf/5 border border-leaf/10 rounded-full px-2 py-0.5">
+                                  {quantityInCart} in Cart
+                                </span>
+                                <button
+                                  onClick={() => handleAddItemClick(item)}
+                                  className="rounded-lg bg-leaf hover:bg-leaf/90 text-white font-bold px-3 py-1.5 text-xs shadow-sm active:scale-95 transition-all flex items-center gap-1"
+                                >
+                                  <Plus className="h-3.5 w-3.5" /> Add More
                                 </button>
                               </div>
                             ) : (
                               <button
-                                onClick={() => add(item)}
+                                onClick={() => handleAddItemClick(item)}
                                 className="rounded-lg bg-leaf hover:bg-leaf/90 text-white font-bold px-3 py-1.5 text-xs shadow-sm active:scale-95 transition-all flex items-center gap-1"
                               >
                                 <Plus className="h-3.5 w-3.5" /> Add
@@ -292,9 +407,14 @@ export function MobileOrder({ token }: { token: string }) {
                   </div>
                   <div className="divide-y divide-black/5">
                     {cart.map((item) => (
-                      <div key={item.id} className="p-4 flex justify-between items-center bg-white animate-scale-up">
+                      <div key={item.id} className="p-4 flex justify-between items-center bg-[#ffffff] animate-scale-up">
                         <div>
                           <p className="font-extrabold text-sm text-ink">{item.name}</p>
+                          {item.selectedOptions && item.selectedOptions.length > 0 && (
+                            <p className="text-[10px] text-leaf font-bold mt-0.5 bg-leaf/5 px-2 py-0.5 rounded-md border border-leaf/10 inline-block">
+                              + {item.selectedOptions.map(o => o.optionName).join(", ")}
+                            </p>
+                          )}
                           <p className="text-xs text-ink/50 mt-0.5">Rs. {item.price} each</p>
                         </div>
                         <div className="flex items-center gap-3">
@@ -446,6 +566,78 @@ export function MobileOrder({ token }: { token: string }) {
           <span>Track</span>
         </button>
       </nav>
+      {/* Customer Modifier Options Modal */}
+      {isModifierModalOpen && modifierMenuItem && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs p-0 animate-fade-in text-left">
+          <div className="w-full max-w-[480px] rounded-t-3xl border border-black/5 bg-white p-6 shadow-soft space-y-4 animate-slide-up max-h-[85vh] overflow-y-auto pb-10">
+            <div className="flex justify-between items-start border-b border-black/5 pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-ink">{modifierMenuItem.name}</h3>
+                <p className="text-xs text-ink/50 mt-0.5">Customize your dish preferences</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModifierModalOpen(false)}
+                className="text-xs font-bold text-ink/40 hover:text-ink/80 bg-mist px-2.5 py-1 rounded-lg"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              {(modifierMenuItem.options || []).map((group) => {
+                const selected = selectedOptionsMap[group.id] || [];
+                return (
+                  <div key={group.id} className="space-y-2">
+                    <div className="flex justify-between items-baseline">
+                      <h4 className="text-xs font-black text-ink/80 uppercase tracking-wide">
+                        {group.name}
+                        {group.isRequired && <span className="text-red-500 ml-1 font-bold">*</span>}
+                      </h4>
+                      <p className="text-[10px] text-ink/40 font-bold uppercase">
+                        {group.minSelect === 1 && group.maxSelect === 1
+                          ? "Select one"
+                          : `Select up to ${group.maxSelect}`}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-2">
+                      {group.options.map((opt) => {
+                        const isSelected = selected.some((o) => o.id === opt.id);
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => handleSelectOptionToggle(group.id, opt, group.maxSelect)}
+                            className={`flex justify-between items-center px-4 py-3 rounded-xl border text-xs font-bold transition-all ${
+                              isSelected
+                                ? "bg-leaf/5 border-leaf text-leaf"
+                                : "bg-white border-black/10 text-ink hover:bg-mist/10"
+                            }`}
+                          >
+                            <span>{opt.name}</span>
+                            <span>{opt.price > 0 ? `+ Rs. ${opt.price}` : "Free"}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-4 border-t border-black/5">
+              <Button
+                type="button"
+                onClick={handleConfirmModifiers}
+                className="w-full py-4 text-xs font-bold rounded-xl bg-leaf hover:bg-leaf/90 text-white shadow-md"
+              >
+                Add Customized Item
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -33,6 +33,7 @@ type Bill = {
   paymentMethod: "CASH" | "UPI" | "CARD" | "SPLIT";
   paymentStatus: "PENDING" | "PAID" | "REFUNDED" | "VOID";
   createdAt: string;
+  splitBills?: any;
 };
 
 export default function BillingPage() {
@@ -42,6 +43,104 @@ export default function BillingPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "UPI" | "CARD">("UPI");
   const [settling, setSettling] = useState(false);
+
+  // Split bill states
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [splitType, setSplitType] = useState<"EQUAL" | "ITEMIZED">("EQUAL");
+  const [equalParts, setEqualParts] = useState(2);
+  const [sessionOrders, setSessionOrders] = useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  // Item split state: list of { guestName: string, itemIds: string[] }
+  const [itemSplits, setItemSplits] = useState<{ guestName: string; itemIds: string[] }[]>([
+    { guestName: "Guest 1", itemIds: [] },
+    { guestName: "Guest 2", itemIds: [] }
+  ]);
+
+  const handleOpenSplitModal = async () => {
+    if (!selectedBill) return;
+    setIsSplitModalOpen(true);
+    try {
+      setLoadingOrders(true);
+      const res = await api.get(`/bills/table/${selectedBill.tableId}`);
+      const flatItems = (res.data.orders || []).flatMap((o: any) => 
+        (o.items || []).map((i: any) => ({
+          ...i,
+          orderId: o.id
+        }))
+      );
+      setSessionOrders(flatItems);
+      setItemSplits([
+        { guestName: "Guest 1", itemIds: [] },
+        { guestName: "Guest 2", itemIds: [] }
+      ]);
+    } catch (err) {
+      toast.error("Failed to load session orders for split");
+      console.error(err);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  const handleCreateEqualSplit = async () => {
+    if (!selectedBill) return;
+    try {
+      const res = await api.post(`/bills/${selectedBill.id}/split`, {
+        splitType: "EQUAL",
+        parts: equalParts
+      });
+      setSelectedBill(res.data);
+      setBills((prev) => prev.map((b) => (b.id === selectedBill.id ? res.data : b)));
+      setIsSplitModalOpen(false);
+      toast.success("Equal bill split generated!");
+    } catch (err) {
+      toast.error("Failed to split bill");
+      console.error(err);
+    }
+  };
+
+  const handleCreateItemizedSplit = async () => {
+    if (!selectedBill) return;
+
+    const assignedIds = new Set(itemSplits.flatMap(g => g.itemIds));
+    const allItemIds = sessionOrders.map(i => i.id);
+    const unassigned = allItemIds.filter(id => !assignedIds.has(id));
+
+    if (unassigned.length > 0) {
+      toast.error("Please assign all order items before splitting");
+      return;
+    }
+
+    try {
+      const res = await api.post(`/bills/${selectedBill.id}/split`, {
+        splitType: "ITEMIZED",
+        itemSplits: itemSplits
+      });
+      setSelectedBill(res.data);
+      setBills((prev) => prev.map((b) => (b.id === selectedBill.id ? res.data : b)));
+      setIsSplitModalOpen(false);
+      toast.success("Itemized bill split generated!");
+    } catch (err) {
+      toast.error("Failed to split bill");
+      console.error(err);
+    }
+  };
+
+  const handleSettleSplitPart = async (splitPartId: string, method: string) => {
+    if (!selectedBill) return;
+    try {
+      const res = await api.patch(`/bills/${selectedBill.id}/payment`, {
+        paymentMethod: method,
+        splitPartId
+      });
+      setSelectedBill(res.data);
+      setBills((prev) => prev.map((b) => (b.id === selectedBill.id ? res.data : b)));
+      toast.success(`Split part settled successfully via ${method}!`);
+    } catch (err) {
+      toast.error("Failed to settle split payment");
+      console.error(err);
+    }
+  };
 
   // Fetch Bills on load
   const loadBills = async () => {
@@ -237,7 +336,52 @@ export default function BillingPage() {
                   </div>
 
                   {/* Settle Action Panel */}
-                  {selectedBill.paymentStatus === "PENDING" ? (
+                  {selectedBill.splitBills ? (
+                    <div className="mt-5 space-y-3">
+                      <h3 className="font-bold text-ink text-xs uppercase tracking-wider">Split Payment Parts</h3>
+                      <div className="space-y-2.5 max-h-[240px] overflow-y-auto pr-1">
+                        {(selectedBill.splitBills as any[]).map((part) => (
+                          <div key={part.id} className="p-3 border border-black/5 rounded-xl bg-mist/10 flex flex-col gap-2">
+                            <div className="flex justify-between items-baseline">
+                              <span className="text-xs font-extrabold text-ink">
+                                {part.guestName ? part.guestName : `Part #${part.partNumber}`}
+                              </span>
+                              <span className="text-xs font-black text-leaf">Rs. {part.totalAmount.toFixed(2)}</span>
+                            </div>
+                            {part.items && (
+                              <p className="text-[10px] text-ink/50 line-clamp-1">
+                                {part.items.map((i: any) => `${i.quantity}x ${i.name}`).join(", ")}
+                              </p>
+                            )}
+                            <div className="flex justify-between items-center mt-1 border-t border-black/5 pt-1.5">
+                              <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                part.paymentStatus === "PAID" 
+                                  ? "text-green-700 bg-green-500/10 border border-green-500/20" 
+                                  : "text-saffron bg-saffron/10 border border-saffron/20"
+                              }`}>
+                                {part.paymentStatus}
+                              </span>
+                              {part.paymentStatus === "PENDING" ? (
+                                <div className="flex gap-1">
+                                  {["UPI", "CASH", "CARD"].map((m) => (
+                                    <button
+                                      key={m}
+                                      onClick={() => handleSettleSplitPart(part.id, m)}
+                                      className="text-[9px] font-black bg-white hover:bg-mist/30 border border-black/10 px-2 py-1 rounded shadow-sm"
+                                    >
+                                      {m}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-[9px] text-ink/40 font-semibold">Paid via {part.paymentMethod}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : selectedBill.paymentStatus === "PENDING" ? (
                     <div className="mt-5 space-y-4 animate-fade-in">
                       <h3 className="font-bold text-ink text-xs uppercase tracking-wider">Select Payment Method</h3>
                       <div className="grid grid-cols-3 gap-2">
@@ -268,15 +412,24 @@ export default function BillingPage() {
                 </div>
 
                 <div className="mt-8 pt-5 border-t border-black/5 space-y-2.5">
-                  {selectedBill.paymentStatus === "PENDING" && (
-                    <Button
-                      onClick={handleSettlePayment}
-                      disabled={settling}
-                      className="w-full py-4 text-xs font-bold bg-leaf hover:bg-leaf/90 flex items-center justify-center gap-1.5 active:scale-98 shadow-md"
-                    >
-                      <CreditCard className="h-4 w-4" />
-                      {settling ? "Settling..." : `Collect & Settle Rs. ${selectedBill.totalAmount.toFixed(2)}`}
-                    </Button>
+                  {selectedBill.paymentStatus === "PENDING" && !selectedBill.splitBills && (
+                    <>
+                      <Button
+                        onClick={handleSettlePayment}
+                        disabled={settling}
+                        className="w-full py-4 text-xs font-bold bg-leaf hover:bg-leaf/90 flex items-center justify-center gap-1.5 active:scale-98 shadow-md"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        {settling ? "Settling..." : `Collect & Settle Rs. ${selectedBill.totalAmount.toFixed(2)}`}
+                      </Button>
+                      <Button
+                        onClick={handleOpenSplitModal}
+                        className="w-full py-4 text-xs font-bold bg-transparent border border-leaf/30 text-leaf hover:bg-leaf/5 flex items-center justify-center gap-1.5"
+                      >
+                        <Sparkles className="h-4 w-4 text-leaf" />
+                        Split Bill
+                      </Button>
+                    </>
                   )}
                   <Button
                     onClick={() => handlePrintPDF(selectedBill.id)}
@@ -298,6 +451,168 @@ export default function BillingPage() {
             )}
           </div>
         </div>
+
+        {/* Split Bill Dialog Modal */}
+        {isSplitModalOpen && selectedBill && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in text-left">
+            <div className="w-full max-w-xl rounded-2xl border border-black/5 bg-white p-6 shadow-soft space-y-4 animate-scale-up max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-start border-b border-black/5 pb-3">
+                <div>
+                  <h3 className="text-base font-extrabold text-ink">Split Bill POS Configurator</h3>
+                  <p className="text-xs text-ink/50 mt-0.5">Table {selectedBill.table?.tableNumber || "Selected"} • Total Amount: Rs. {selectedBill.totalAmount.toFixed(2)}</p>
+                </div>
+                <button
+                  onClick={() => setIsSplitModalOpen(false)}
+                  className="text-xs font-bold text-ink/40 hover:text-ink/80 bg-mist px-2.5 py-1 rounded-lg transition"
+                >
+                  Close
+                </button>
+              </div>
+
+              {/* Split Type Selector */}
+              <div className="flex gap-2 border-b border-black/5 pb-2">
+                <button
+                  onClick={() => setSplitType("EQUAL")}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all ${
+                    splitType === "EQUAL"
+                      ? "bg-leaf/10 border-leaf/20 text-leaf"
+                      : "bg-transparent border-transparent text-ink/60 hover:bg-mist/30"
+                  }`}
+                >
+                  Split Equally
+                </button>
+                <button
+                  onClick={() => setSplitType("ITEMIZED")}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all ${
+                    splitType === "ITEMIZED"
+                      ? "bg-leaf/10 border-leaf/20 text-leaf"
+                      : "bg-transparent border-transparent text-ink/60 hover:bg-mist/30"
+                  }`}
+                >
+                  Split by Items
+                </button>
+              </div>
+
+              {splitType === "EQUAL" ? (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-ink/50 uppercase">Number of guests (parts)</label>
+                    <input
+                      type="number"
+                      min="2"
+                      max="10"
+                      value={equalParts}
+                      onChange={(e) => setEqualParts(Math.max(2, parseInt(e.target.value) || 2))}
+                      className="w-full rounded-xl border border-black/10 py-3.5 px-4 text-sm outline-none bg-white text-ink focus:border-leaf"
+                    />
+                  </div>
+                  <div className="p-3 border border-black/5 bg-[#fafafa] rounded-xl flex justify-between items-center text-xs font-bold">
+                    <span className="text-ink/50">Each Guest Pays:</span>
+                    <span className="font-black text-leaf text-sm">Rs. {(selectedBill.totalAmount / equalParts).toFixed(2)}</span>
+                  </div>
+                  <Button
+                    onClick={handleCreateEqualSplit}
+                    className="w-full py-4 text-xs font-bold bg-leaf hover:bg-leaf/90 text-white shadow-md"
+                  >
+                    Generate Equal Splits
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {loadingOrders ? (
+                    <p className="text-center py-6 text-xs text-ink/40">Loading items...</p>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-ink/50 uppercase">Guests</span>
+                        <button
+                          onClick={() => setItemSplits([...itemSplits, { guestName: `Guest ${itemSplits.length + 1}`, itemIds: [] }])}
+                          className="text-xs text-leaf font-bold hover:underline"
+                        >
+                          + Add Guest
+                        </button>
+                      </div>
+
+                      {/* Guests List */}
+                      <div className="flex gap-2 overflow-x-auto pb-2 pr-1">
+                        {itemSplits.map((g, idx) => (
+                          <div key={idx} className="flex-shrink-0 bg-mist/20 border border-black/5 px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs font-bold text-ink">
+                            <input
+                              type="text"
+                              value={g.guestName}
+                              onChange={(e) => {
+                                setItemSplits(itemSplits.map((item, i) => i === idx ? { ...item, guestName: e.target.value } : item));
+                              }}
+                              className="bg-transparent border-none outline-none font-bold w-16 text-center text-ink"
+                            />
+                            {itemSplits.length > 2 && (
+                              <button
+                                onClick={() => {
+                                  setItemSplits(itemSplits.filter((_, i) => i !== idx));
+                                }}
+                                className="text-red-500 hover:text-red-700 font-bold"
+                              >
+                                &times;
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Items Assignment List */}
+                      <div className="space-y-2 max-h-[30vh] overflow-y-auto pr-1">
+                        <h4 className="text-[10px] font-black text-ink/50 uppercase">Assign Items to Guests</h4>
+                        {sessionOrders.map((item) => {
+                          const assignedGuestIdx = itemSplits.findIndex(g => g.itemIds.includes(item.id));
+                          return (
+                            <div key={item.id} className="flex justify-between items-center p-3 border border-black/5 bg-[#fafafa] rounded-xl text-xs font-bold">
+                              <div className="flex-1 min-w-0 pr-4">
+                                <p className="text-ink truncate">{item.menuItem?.name || "Item"}</p>
+                                <p className="text-[10px] text-ink/40 font-medium">Rs. {item.unitPrice} each</p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-ink/60">{item.quantity}x</span>
+                                <select
+                                  value={assignedGuestIdx !== -1 ? assignedGuestIdx : ""}
+                                  onChange={(e) => {
+                                    const guestIdx = parseInt(e.target.value);
+                                    const cleanedSplits = itemSplits.map(g => ({
+                                      ...g,
+                                      itemIds: g.itemIds.filter(id => id !== item.id)
+                                    }));
+                                    if (!isNaN(guestIdx)) {
+                                      cleanedSplits[guestIdx].itemIds.push(item.id);
+                                    }
+                                    setItemSplits(cleanedSplits);
+                                  }}
+                                  className="rounded-lg border border-black/10 py-1.5 px-3 bg-white text-ink cursor-pointer outline-none font-bold text-xs"
+                                >
+                                  <option value="">Unassigned</option>
+                                  {itemSplits.map((g, idx) => (
+                                    <option key={idx} value={idx}>
+                                      {g.guestName}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <Button
+                        onClick={handleCreateItemizedSplit}
+                        className="w-full py-4 text-xs font-bold bg-leaf hover:bg-leaf/90 text-white shadow-md mt-2"
+                      >
+                        Generate Itemized Splits
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </section>
     </RoleGuard>
   );

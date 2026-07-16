@@ -2,7 +2,18 @@
 
 import { create } from "zustand";
 
-export type CartItem = { id: string; name: string; price: number; quantity: number };
+export type CartItem = {
+  id: string; // unique cart item key (e.g. menuItemId + serialized options)
+  menuItemId: string;
+  name: string;
+  price: number; // unit price including option additions
+  quantity: number;
+  selectedOptions?: {
+    groupName: string;
+    optionName: string;
+    price: number;
+  }[];
+};
 
 export const useCartStore = create<{
   items: CartItem[];
