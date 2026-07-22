@@ -12,7 +12,7 @@ export default function LoginPage() {
   const setSession = useAuthStore((state) => state.setSession);
   
   const [email, setEmail] = useState("owner@uxitech.com");
-  const [password, setPassword] = useState("Admin@123");
+  const [password, setPassword] = useState("Uxitech#2026");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -32,17 +32,17 @@ export default function LoginPage() {
       setLoading(true);
       setErrorMsg("");
       const response = await api.post("/auth/login", {
-        email,
-        password
+        email: email.trim(),
+        password: password.trim()
       });
       setSession(response.data.user, response.data.accessToken);
       router.push("/dashboard");
     } catch (err: any) {
       console.error("Login API error:", err);
       
-      // If password is Admin@123 and email matches a demo account, use demo fallback
       const cleanEmail = email.trim().toLowerCase();
-      if (password === "Admin@123" && MOCK_DEMO_USERS[cleanEmail]) {
+      // Demo fallback if password matches or API server is down
+      if (MOCK_DEMO_USERS[cleanEmail] && (password === "Uxitech#2026" || password === "Admin@123" || !err.response)) {
         const demoUser = MOCK_DEMO_USERS[cleanEmail];
         setSession(demoUser, "demo-sandbox-token");
         router.push("/dashboard");
@@ -50,7 +50,7 @@ export default function LoginPage() {
       }
 
       if (!err.response) {
-        setErrorMsg("API server unreachable. Use a Quick Demo Account below or Admin@123 to log in.");
+        setErrorMsg("API server unreachable. Click a Quick Demo Account below to enter.");
       } else {
         setErrorMsg(err.response?.data?.message || "Invalid credentials. Please try again.");
       }
@@ -59,17 +59,35 @@ export default function LoginPage() {
     }
   }
 
+  const handleDirectDemoLogin = async (accEmail: string) => {
+    setEmail(accEmail);
+    setPassword("Uxitech#2026");
+    setLoading(true);
+    setErrorMsg("");
+
+    try {
+      const response = await api.post("/auth/login", {
+        email: accEmail,
+        password: "Uxitech#2026"
+      });
+      setSession(response.data.user, response.data.accessToken);
+      router.push("/dashboard");
+    } catch (_err) {
+      // Instant 1-click fallback to dashboard for demo preview
+      const demoUser = MOCK_DEMO_USERS[accEmail] || MOCK_DEMO_USERS["owner@uxitech.com"];
+      setSession(demoUser, "demo-sandbox-token");
+      router.push("/dashboard");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const demoAccounts = [
     { role: "Owner (Admin)", email: "owner@uxitech.com", desc: "Full reports & configs" },
     { role: "Cashier Settle", email: "cashier@uxitech.com", desc: "POS checkout bills" },
     { role: "Kitchen Station", email: "kitchen@uxitech.com", desc: "Prep tickets display" },
     { role: "Waiter Device", email: "waiter@uxitech.com", desc: "Table order view" }
   ];
-
-  const handleAutofill = (accEmail: string) => {
-    setEmail(accEmail);
-    setPassword("Admin@123");
-  };
 
   return (
     <main className="grid min-h-screen place-items-center bg-[#fcfdfc] px-4 py-8 animate-fade-in">
@@ -126,11 +144,11 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        {/* Demo Accounts List Grid */}
+        {/* Quick Demo Accounts List Grid - 1-Click Instant Login */}
         <div className="rounded-2xl border border-black/5 bg-white p-5 shadow-soft space-y-3">
           <div className="flex items-center gap-2 border-b border-black/5 pb-2 text-xs font-black text-ink">
             <Users className="h-4.5 w-4.5 text-leaf" />
-            <span>QUICK DEMO ACCOUNTS</span>
+            <span>QUICK DEMO ACCOUNTS (1-CLICK LOGIN)</span>
           </div>
           
           <div className="grid grid-cols-2 gap-2">
@@ -138,12 +156,12 @@ export default function LoginPage() {
               <button
                 key={index}
                 type="button"
-                onClick={() => handleAutofill(acc.email)}
-                className={`text-left p-2.5 rounded-xl border text-xs font-bold transition flex flex-col justify-between hover:border-leaf/50 hover:bg-leaf/[0.02] ${
+                onClick={() => handleDirectDemoLogin(acc.email)}
+                className={`text-left p-2.5 rounded-xl border text-xs font-bold transition flex flex-col justify-between hover:border-leaf hover:bg-leaf/5 ${
                   email === acc.email ? "border-leaf bg-leaf/5" : "border-black/5"
                 }`}
               >
-                <span className="text-ink">{acc.role}</span>
+                <span className="text-ink font-extrabold">{acc.role}</span>
                 <span className="text-[9px] text-ink/40 font-medium tracking-normal mt-0.5">{acc.desc}</span>
               </button>
             ))}
@@ -151,7 +169,7 @@ export default function LoginPage() {
 
           <div className="flex items-center gap-1.5 text-[9px] font-bold text-ink/40 bg-mist/40 p-2 rounded-lg border border-black/[0.03]">
             <KeyRound className="h-3.5 w-3.5 text-saffron flex-shrink-0" />
-            <span>Password for all demo accounts is <code className="font-mono bg-white px-1 py-0.5 rounded border border-black/10">Admin@123</code></span>
+            <span>Demo Password: <code className="font-mono bg-white px-1 py-0.5 rounded border border-black/10">Uxitech#2026</code></span>
           </div>
         </div>
 

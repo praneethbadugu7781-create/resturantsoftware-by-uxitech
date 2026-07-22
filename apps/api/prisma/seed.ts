@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import QRCode from "qrcode";
 
 const prisma = new PrismaClient();
-const password = await bcrypt.hash("Admin@123", 12);
+const password = await bcrypt.hash("Uxitech#2026", 12);
 
 const categories = ["Starters", "Soups", "Biryani", "Main Course", "Breads", "Rice", "Desserts", "Beverages"];
 const menuNames = [
