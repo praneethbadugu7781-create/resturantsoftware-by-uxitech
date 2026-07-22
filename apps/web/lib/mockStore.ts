@@ -264,6 +264,15 @@ export function handleMockRoute(method: string, url: string, data?: any): any {
   const cleanUrl = url.split("?")[0].replace(/\/$/, "");
 
   // Auth routes
+  if (cleanUrl.endsWith("/auth/login")) {
+    const reqEmail = (data?.email || "owner@uxitech.com").toString().toLowerCase().trim();
+    const matchedUser = mockStaff.find((s) => s.email.toLowerCase() === reqEmail) || mockStaff[0];
+    return {
+      user: matchedUser,
+      accessToken: "demo-sandbox-token"
+    };
+  }
+
   if (cleanUrl.endsWith("/auth/me")) {
     return { user: mockStaff[0] };
   }
