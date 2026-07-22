@@ -3,70 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "mongodb"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
   relationMode = "prisma"
-}
-
-enum Role {
-  OWNER
-  MANAGER
-  CASHIER
-  WAITER
-  KITCHEN
-}
-
-enum TableStatus {
-  AVAILABLE
-  OCCUPIED
-  RESERVED
-  CLEANING
-  BLOCKED
-}
-
-enum ReservationStatus {
-  PENDING
-  CONFIRMED
-  CANCELLED
-  COMPLETED
-}
-
-enum OrderStatus {
-  PENDING
-  ACCEPTED
-  PREPARING
-  READY
-  SERVED
-  COMPLETED
-}
-
-enum OrderType {
-  WAITER
-  QR_SELF
-}
-
-enum PaymentMethod {
-  CASH
-  UPI
-  CARD
-  SPLIT
-}
-
-enum PaymentStatus {
-  PENDING
-  PAID
-  REFUNDED
-  VOID
-}
-
-enum PurchaseOrderStatus {
-  ORDERED
-  RECEIVED
-}
-
-enum SessionStatus {
-  ACTIVE
-  CLOSED
 }
 
 model Restaurant {
@@ -99,7 +38,7 @@ model User {
   name            String
   email           String            @unique
   password        String
-  role            Role
+  role            String
   phone           String?
   isActive        Boolean           @default(true)
   createdAt       DateTime          @default(now())
@@ -114,7 +53,7 @@ model Table {
   tableNumber  String
   capacity     Int
   area         String
-  status       TableStatus    @default(AVAILABLE)
+  status       String         @default("AVAILABLE")
   x            Float          @default(0)
   y            Float          @default(0)
   qrToken      String         @unique
@@ -137,7 +76,7 @@ model Reservation {
   guestCount   Int
   date         DateTime
   timeSlot     String
-  status       ReservationStatus @default(PENDING)
+  status       String            @default("PENDING")
   notes        String?
   createdAt    DateTime          @default(now())
 }
@@ -181,8 +120,8 @@ model Order {
   session      TableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   customerId   String?
   customer     Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  status       OrderStatus @default(PENDING)
-  orderType    OrderType
+  status       String      @default("PENDING")
+  orderType    String
   totalAmount  Float
   createdAt    DateTime    @default(now())
   items        OrderItem[]
@@ -197,8 +136,8 @@ model OrderItem {
   quantity             Int
   unitPrice            Float
   specialInstructions  String?
-  status               OrderStatus @default(PENDING)
-  selectedOptions      Json?
+  status               String      @default("PENDING")
+  selectedOptions      String?
 }
 
 model Bill {
@@ -208,18 +147,18 @@ model Bill {
   tableId        String
   table          Table         @relation(fields: [tableId], references: [id])
   sessionId      String
-  orderIds       String[]
+  orderIds       String
   subtotal       Float
   gstAmount      Float
   gstPercent     Float
   serviceCharge  Float         @default(0)
   discount       Float         @default(0)
   totalAmount    Float
-  paymentMethod  PaymentMethod @default(CASH)
-  paymentStatus  PaymentStatus @default(PENDING)
+  paymentMethod  String        @default("CASH")
+  paymentStatus  String        @default("PENDING")
   pdfUrl         String?
   createdAt      DateTime      @default(now())
-  splitBills     Json?
+  splitBills     String?
 }
 
 model InventoryItem {
@@ -255,9 +194,9 @@ model PurchaseOrder {
   restaurantId String
   supplierId   String
   supplier     Supplier            @relation(fields: [supplierId], references: [id])
-  items        Json
+  items        String
   totalCost    Float
-  status       PurchaseOrderStatus @default(ORDERED)
+  status       String              @default("ORDERED")
   createdAt    DateTime            @default(now())
 }
 
@@ -294,7 +233,7 @@ model TableSession {
   table         Table         @relation(fields: [tableId], references: [id], onDelete: Cascade)
   startTime     DateTime      @default(now())
   endTime       DateTime?
-  status        SessionStatus @default(ACTIVE)
+  status        String        @default("ACTIVE")
   customerCount Int           @default(1)
   totalBilled   Float         @default(0)
   orders        Order[]
@@ -309,7 +248,7 @@ model AuditLog {
   action       String
   entity       String
   entityId     String?
-  metadata     Json?
+  metadata     String?
   createdAt    DateTime   @default(now())
 }
 

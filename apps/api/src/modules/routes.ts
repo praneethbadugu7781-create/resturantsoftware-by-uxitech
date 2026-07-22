@@ -15,6 +15,15 @@ import { customerTag, movingAverage } from "../utils/aiInsights.js";
 import authRoutes from "./auth/routes.js";
 import type { Server } from "socket.io";
 
+function parseBill(bill: any): any {
+  if (!bill) return bill;
+  return {
+    ...bill,
+    orderIds: typeof bill.orderIds === "string" ? JSON.parse(bill.orderIds) : (bill.orderIds || []),
+    splitBills: typeof bill.splitBills === "string" ? JSON.parse(bill.splitBills) : (bill.splitBills || null)
+  };
+}
+
 // Multer storage setup for menu image uploads
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) {
@@ -111,11 +120,11 @@ export function apiRoutes(io: Server) {
         const unitPrice = basePrice + optionsPrice;
         totalAmount += unitPrice * item.quantity;
         return {
-          menuItemId: item.menuItemId,
+          menuItem: { connect: { id: item.menuItemId } },
           quantity: item.quantity,
           unitPrice,
           specialInstructions: item.specialInstructions,
-          selectedOptions: item.selectedOptions || undefined
+          selectedOptions: item.selectedOptions ? JSON.stringify(item.selectedOptions) : undefined
         };
       });
 
@@ -270,11 +279,11 @@ export function apiRoutes(io: Server) {
       const unitPrice = basePrice + optionsPrice;
       totalAmount += unitPrice * item.quantity;
       return {
-        menuItemId: item.menuItemId,
+        menuItem: { connect: { id: item.menuItemId } },
         quantity: item.quantity,
         unitPrice,
         specialInstructions: item.specialInstructions,
-        selectedOptions: item.selectedOptions || undefined
+        selectedOptions: item.selectedOptions ? JSON.stringify(item.selectedOptions) : undefined
       };
     });
 
@@ -340,7 +349,7 @@ export function apiRoutes(io: Server) {
   router.post("/reservations/:id/approve", requireRoles("MANAGER"), asyncHandler(async (req, res) => res.json(await prisma.reservation.update({ where: { id: req.params.id }, data: { status: "CONFIRMED" } }))));
   router.post("/reservations/:id/reject", requireRoles("MANAGER"), asyncHandler(async (req, res) => res.json(await prisma.reservation.update({ where: { id: req.params.id }, data: { status: "CANCELLED" } }))));
 
-  router.get("/bills", requireRoles("CASHIER", "MANAGER"), asyncHandler(async (req, res) => res.json(await prisma.bill.findMany({ where: restaurantWhere(req), include: { table: true }, orderBy: { createdAt: "desc" } }))));
+  router.get("/bills", requireRoles("CASHIER", "MANAGER"), asyncHandler(async (req, res) => { const bills = await prisma.bill.findMany({ where: restaurantWhere(req), include: { table: true }, orderBy: { createdAt: "desc" } }); res.json(bills.map(parseBill)); }));
   router.get("/bills/table/:tableId", requireRoles("CASHIER", "MANAGER"), asyncHandler(async (req, res) => {
     const session = await prisma.tableSession.findFirst({ where: { tableId: req.params.tableId, status: "ACTIVE" } });
     const orders = session ? await prisma.order.findMany({ where: { sessionId: session.id }, include: { items: { include: { menuItem: true } } } }) : [];
@@ -353,8 +362,8 @@ export function apiRoutes(io: Server) {
     const subtotal = orders.reduce((sum, order) => sum + order.totalAmount, 0);
     const gstAmount = subtotal * (body.gstPercent / 100);
     const totalAmount = subtotal + gstAmount + body.serviceCharge - body.discount;
-    const bill = await prisma.bill.create({ data: { restaurantId: req.user!.restaurantId, tableId: body.tableId, sessionId: session.id, orderIds: orders.map((order) => order.id), subtotal, gstAmount, gstPercent: body.gstPercent, serviceCharge: body.serviceCharge, discount: body.discount, totalAmount }, include: { table: true } });
-    res.status(201).json(bill);
+    const bill = await prisma.bill.create({ data: { restaurantId: req.user!.restaurantId, tableId: body.tableId, sessionId: session.id, orderIds: JSON.stringify(orders.map((order) => order.id)), subtotal, gstAmount, gstPercent: body.gstPercent, serviceCharge: body.serviceCharge, discount: body.discount, totalAmount }, include: { table: true } });
+    res.status(201).json(parseBill(bill));
   }));
   router.post("/bills/:id/split", requireRoles("CASHIER", "MANAGER"), asyncHandler(async (req, res) => {
     const body = z.object({
@@ -394,11 +403,11 @@ export function apiRoutes(io: Server) {
       const updatedBill = await prisma.bill.update({
         where: { id: bill.id },
         data: {
-          splitBills: splits
+          splitBills: JSON.stringify(splits)
         },
         include: { table: true }
       });
-      return res.json(updatedBill);
+      return res.json(parseBill(updatedBill));
     }
 
     if (body.splitType === "ITEMIZED" && body.itemSplits) {
@@ -440,11 +449,11 @@ export function apiRoutes(io: Server) {
       const updatedBill = await prisma.bill.update({
         where: { id: bill.id },
         data: {
-          splitBills: splits
+          splitBills: JSON.stringify(splits)
         },
         include: { table: true }
       });
-      return res.json(updatedBill);
+      return res.json(parseBill(updatedBill));
     }
 
     throw new HttpError(400, "Invalid split parameters");
@@ -454,8 +463,9 @@ export function apiRoutes(io: Server) {
     const { paymentMethod, splitPartId } = req.body;
     const bill = await prisma.bill.findUniqueOrThrow({ where: { id: req.params.id }, include: { table: true } });
     
-    if (splitPartId && bill.splitBills) {
-      const splits = bill.splitBills as any[];
+    const parsedBill = parseBill(bill);
+    if (splitPartId && parsedBill.splitBills) {
+      const splits = parsedBill.splitBills as any[];
       const updatedSplits = splits.map(part => {
         if (part.id === splitPartId) {
           return { ...part, paymentStatus: "PAID", paymentMethod };
@@ -468,7 +478,7 @@ export function apiRoutes(io: Server) {
       const updatedBill = await prisma.bill.update({
         where: { id: bill.id },
         data: {
-          splitBills: updatedSplits,
+          splitBills: JSON.stringify(updatedSplits),
           paymentStatus: allPaid ? "PAID" : "PENDING",
           paymentMethod: allPaid ? "SPLIT" : bill.paymentMethod
         },
@@ -482,14 +492,14 @@ export function apiRoutes(io: Server) {
         io.to(`restaurant:${bill.restaurantId}`).emit("table:statusChange", { tableId: bill.tableId, status: "AVAILABLE" });
       }
 
-      return res.json(updatedBill);
+      return res.json(parseBill(updatedBill));
     } else {
       const updatedBill = await prisma.bill.update({ where: { id: req.params.id }, data: { paymentMethod: req.body.paymentMethod, paymentStatus: "PAID" }, include: { table: true } });
       await prisma.tableSession.update({ where: { id: updatedBill.sessionId }, data: { status: "CLOSED", endTime: new Date(), totalBilled: updatedBill.totalAmount } });
       await prisma.table.update({ where: { id: updatedBill.tableId }, data: { status: "AVAILABLE" } });
       io.to(`restaurant:${updatedBill.restaurantId}`).emit("bill:paid", updatedBill);
       io.to(`restaurant:${updatedBill.restaurantId}`).emit("table:statusChange", { tableId: updatedBill.tableId, status: "AVAILABLE" });
-      return res.json(updatedBill);
+      return res.json(parseBill(updatedBill));
     }
   }));
   router.get("/bills/:id/pdf", requireRoles("CASHIER", "MANAGER"), asyncHandler(async (req, res) => {

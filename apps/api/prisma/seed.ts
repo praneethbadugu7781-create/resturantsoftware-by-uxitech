@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 import bcrypt from "bcryptjs";
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import QRCode from "qrcode";
 
@@ -51,16 +51,16 @@ async function main() {
 
   await prisma.user.createMany({
     data: [
-      ["Owner", "owner@uxitech.com", Role.OWNER],
-      ["Manager", "manager@uxitech.com", Role.MANAGER],
-      ["Cashier", "cashier@uxitech.com", Role.CASHIER],
-      ["Waiter", "waiter@uxitech.com", Role.WAITER],
-      ["Kitchen", "kitchen@uxitech.com", Role.KITCHEN]
+      ["Owner", "owner@uxitech.com", "OWNER"],
+      ["Manager", "manager@uxitech.com", "MANAGER"],
+      ["Cashier", "cashier@uxitech.com", "CASHIER"],
+      ["Waiter", "waiter@uxitech.com", "WAITER"],
+      ["Kitchen", "kitchen@uxitech.com", "KITCHEN"]
     ].map(([name, email, role]) => ({
       restaurantId: restaurant.id,
       name: `${name}`,
       email: `${email}`,
-      role: role as Role,
+      role: `${role}`,
       password,
       phone: "+91 90000 00000"
     }))
