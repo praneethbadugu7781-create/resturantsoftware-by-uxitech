@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Mail, Users, KeyRound, Sparkles } from "lucide-react";
+import { Lock, Mail, Users, KeyRound, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
@@ -15,14 +15,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("Uxitech#2026");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-
-  const MOCK_DEMO_USERS: Record<string, { id: string; name: string; email: string; role: string }> = {
-    "owner@uxitech.com": { id: "demo-owner-id", name: "Demo Owner", email: "owner@uxitech.com", role: "OWNER" },
-    "manager@uxitech.com": { id: "demo-manager-id", name: "Demo Manager", email: "manager@uxitech.com", role: "MANAGER" },
-    "cashier@uxitech.com": { id: "demo-cashier-id", name: "Demo Cashier", email: "cashier@uxitech.com", role: "CASHIER" },
-    "waiter@uxitech.com": { id: "demo-waiter-id", name: "Demo Waiter", email: "waiter@uxitech.com", role: "WAITER" },
-    "kitchen@uxitech.com": { id: "demo-kitchen-id", name: "Demo Kitchen", email: "kitchen@uxitech.com", role: "KITCHEN" }
-  };
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,50 +31,23 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (err: any) {
       console.error("Login API error:", err);
-      
-      const cleanEmail = email.trim().toLowerCase();
-      // Demo fallback if password matches or API server is down
-      if (MOCK_DEMO_USERS[cleanEmail] && (password === "Uxitech#2026" || password === "Admin@123" || !err.response)) {
-        const demoUser = MOCK_DEMO_USERS[cleanEmail];
-        setSession(demoUser, "demo-sandbox-token");
-        router.push("/dashboard");
-        return;
-      }
-
-      if (!err.response) {
-        setErrorMsg("API server unreachable. Click a Quick Demo Account below to enter.");
-      } else {
-        setErrorMsg(err.response?.data?.message || "Invalid credentials. Please try again.");
-      }
+      setErrorMsg(
+        err.response?.data?.message ||
+        (err.code === "ERR_NETWORK" || !err.response
+          ? "Unable to connect to the backend server. Please verify your connection."
+          : "Invalid credentials. Please try again.")
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  const handleDirectDemoLogin = async (accEmail: string) => {
+  const handleAutofill = (accEmail: string) => {
     setEmail(accEmail);
     setPassword("Uxitech#2026");
-    setLoading(true);
-    setErrorMsg("");
-
-    try {
-      const response = await api.post("/auth/login", {
-        email: accEmail,
-        password: "Uxitech#2026"
-      });
-      setSession(response.data.user, response.data.accessToken);
-      router.push("/dashboard");
-    } catch (_err) {
-      // Instant 1-click fallback to dashboard for demo preview
-      const demoUser = MOCK_DEMO_USERS[accEmail] || MOCK_DEMO_USERS["owner@uxitech.com"];
-      setSession(demoUser, "demo-sandbox-token");
-      router.push("/dashboard");
-    } finally {
-      setLoading(false);
-    }
   };
 
-  const demoAccounts = [
+  const defaultAccounts = [
     { role: "Owner (Admin)", email: "owner@uxitech.com", desc: "Full reports & configs" },
     { role: "Cashier Settle", email: "cashier@uxitech.com", desc: "POS checkout bills" },
     { role: "Kitchen Station", email: "kitchen@uxitech.com", desc: "Prep tickets display" },
@@ -94,8 +59,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md space-y-5">
         <form onSubmit={submit} className="w-full rounded-2xl border border-black/5 bg-white p-6 md:p-8 shadow-soft hover-premium">
           <div className="flex items-center gap-1.5 justify-center bg-leaf/5 text-leaf border border-leaf/10 rounded-full px-3 py-1 text-[11px] font-bold w-fit mx-auto mb-4">
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Sandbox Mode Active</span>
+            <ShieldCheck className="h-3.5 w-3.5" />
+            <span>Production Staff Portal</span>
           </div>
 
           <h1 className="text-2xl font-black text-ink text-center">Staff Portal Login</h1>
@@ -144,19 +109,19 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        {/* Quick Demo Accounts List Grid - 1-Click Instant Login */}
+        {/* Quick Demo Accounts List Grid */}
         <div className="rounded-2xl border border-black/5 bg-white p-5 shadow-soft space-y-3">
           <div className="flex items-center gap-2 border-b border-black/5 pb-2 text-xs font-black text-ink">
             <Users className="h-4.5 w-4.5 text-leaf" />
-            <span>QUICK DEMO ACCOUNTS (1-CLICK LOGIN)</span>
+            <span>DEFAULT WORKSPACE ACCOUNTS</span>
           </div>
           
           <div className="grid grid-cols-2 gap-2">
-            {demoAccounts.map((acc, index) => (
+            {defaultAccounts.map((acc, index) => (
               <button
                 key={index}
                 type="button"
-                onClick={() => handleDirectDemoLogin(acc.email)}
+                onClick={() => handleAutofill(acc.email)}
                 className={`text-left p-2.5 rounded-xl border text-xs font-bold transition flex flex-col justify-between hover:border-leaf hover:bg-leaf/5 ${
                   email === acc.email ? "border-leaf bg-leaf/5" : "border-black/5"
                 }`}
@@ -169,7 +134,7 @@ export default function LoginPage() {
 
           <div className="flex items-center gap-1.5 text-[9px] font-bold text-ink/40 bg-mist/40 p-2 rounded-lg border border-black/[0.03]">
             <KeyRound className="h-3.5 w-3.5 text-saffron flex-shrink-0" />
-            <span>Demo Password: <code className="font-mono bg-white px-1 py-0.5 rounded border border-black/10">Uxitech#2026</code></span>
+            <span>Default Password: <code className="font-mono bg-white px-1 py-0.5 rounded border border-black/10">Uxitech#2026</code></span>
           </div>
         </div>
 
