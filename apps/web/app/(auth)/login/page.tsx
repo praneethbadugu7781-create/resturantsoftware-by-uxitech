@@ -33,9 +33,9 @@ export default function LoginPage() {
       console.error("Login API error:", err);
       setErrorMsg(
         err.response?.data?.message ||
-        (err.code === "ERR_NETWORK" || !err.response
-          ? "Unable to connect to the backend server. Please verify your connection."
-          : "Invalid credentials. Please try again.")
+        err.response?.data?.error ||
+        err.message ||
+        "Login failed. Please check credentials."
       );
     } finally {
       setLoading(false);
