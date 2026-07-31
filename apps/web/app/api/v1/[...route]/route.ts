@@ -6,7 +6,7 @@ import cookieParser from "cookie-parser";
 
 // Set environment defaults for Vercel serverless functions
 if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = "mongodb+srv://badugupraneeth0_db_user:oS89myR4RBbTpTHL@cluster0.de9zaim.mongodb.net/uxitech_restaurant?retryWrites=true&w=majority&appName=Cluster0";
+  process.env.DATABASE_URL = "mongodb+srv://badugupraneeth0_db_user:oS89myR4RBbTpTHL@cluster0.qos5v9x.mongodb.net/uxitech_restaurant?retryWrites=true&w=majority&appName=Cluster0";
 }
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = "change-me-access-secret";
