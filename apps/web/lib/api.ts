@@ -1,24 +1,16 @@
 import axios from "axios";
 
-const getBaseUrl = () => {
-  if (typeof window !== "undefined") {
-    const envUrl = process.env.NEXT_PUBLIC_API_URL;
-    // If NEXT_PUBLIC_API_URL is missing or set to localhost in browser production, use relative /api/v1
-    if (!envUrl || envUrl.includes("localhost:4000")) {
-      return "/api/v1";
-    }
-    return envUrl;
-  }
-  return process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
-};
-
 export const api = axios.create({
-  baseURL: getBaseUrl(),
+  baseURL: "/api/v1",
   withCredentials: true
 });
 
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
+    // If baseURL is missing or points to localhost:4000 on production host, use relative /api/v1
+    if (!config.baseURL || config.baseURL.includes("localhost:4000")) {
+      config.baseURL = "/api/v1";
+    }
     const token = localStorage.getItem("accessToken");
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
